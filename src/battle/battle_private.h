@@ -16,11 +16,6 @@ enum QueueMethod {
 enum AccessWidthType { WIDTH_BIT, WIDTH_BYTE, WIDTH_HALF, WIDTH_WORD };
 
 typedef struct {
-    u8 unk[0x30];
-    s32 unk30;
-} Unk800BB67C;
-
-typedef struct {
     s8 actionId;
     s8 unk1;
     s8 unk2;
@@ -182,6 +177,21 @@ typedef struct {
     /* 0x70 */ s32 D_80151270;
 } Unk80151200; // size:0x74
 
+typedef struct {
+    /* 0x00 */ s16 unk0;
+    /* 0x02 */ s16 unk2;
+    /* 0x04 */ s16 unk4;
+    /* 0x06 */ s16 unk6;
+    /* 0x08 */ s16 unk8;
+    /* 0x0A */ s16 unkA[6];
+    /* 0x16 */ s16 unk16[6];
+    /* 0x22 */ u8 pad22[8];
+    /* 0x2A */ s16 unk2A;
+    /* 0x2C */ s16 unk2C;
+    /* 0x2E */ u8 unk2E;
+    /* 0x2F */ u8 unk2F;
+} Unk80151360; // size:0x30
+
 // Confirmed live via PCSX-Redux (exec breakpoint on func_800A4350, one command
 // at a time, plus direct cmdIndex injection for the remaining gaps). "All"-
 // linked materia (Steal-All, Sense-All, etc) reuse their base command's
@@ -216,7 +226,8 @@ typedef enum {
     CMD_2X_CUT = 0x19,    // materia-granted Attack-command replacement
     CMD_FLASH = 0x1A,     // materia-granted Attack-command replacement
     CMD_4X_CUT = 0x1B,    // materia-granted Attack-command replacement
-    CMD_NONE = 0xFF,      // enemy attack / not a player-menu command
+    CMD_ENEMY_ATTACK = 0x20,
+    CMD_NONE = 0xFF, // queued for an enemy turn; its real command is chosen later
 } BattleCommand;
 
 // Queued-action entry, matches
@@ -246,7 +257,7 @@ extern s32 D_800E7A38;
 extern u8 D_800E7A48[0x10];
 extern u8 D_800E7A58[];
 // Cait Sith's "Slots" limit: 7 three-symbol combos (one row per combo)
-// checked in order against the 3 landed reel symbols (D_80163774) -- see
+// checked in order against the 3 landed reel symbols (g_BattleData.caitSithRolls) -- see
 // BattleResolveCaitSithSlotsResult in battle.c
 extern u8 D_800E7BA4[7][3];
 extern void (*g_BattleDmgFormulaJmpTbl[])(void); // per-action epilogue hook
@@ -258,6 +269,7 @@ extern u8 D_800EA19C[][4];
 extern s32 D_800EA258;
 extern s32 D_800EA25C;
 extern s32 D_800EA260;
+extern s16 D_800EA4F4[12];
 extern s32 D_800EA50C[];
 extern short D_800EEB28[9][8];
 extern Unk800F01DC* D_800F01DC;
@@ -355,12 +367,13 @@ extern u16 D_800F4938[];
 extern s8 D_800F494C[];
 extern u16 D_800F4958;
 extern s32 D_800F4AC8;
+extern s32 D_800F4ACC;
 extern s16 D_800F4AD0;
 extern s32 D_800F4AD4;
 extern s32 D_800F4AD8;
 extern DR_MODE* D_800F4AF4;
 extern DR_MODE* D_800F4AF8;
-extern RECT D_800F4B24;
+extern RECT g_BattleModelClutRect;
 extern RECT D_800F4B2C[];
 extern RECT D_800F4B6C[];
 extern Unk800F01DC D_800F4BAC[];
@@ -369,7 +382,7 @@ extern s8 D_800F5760;
 extern u8 D_800F5764;
 extern u8 D_800F5774;
 extern s32 D_800F57CC; // btlmenu_cursorMemory
-extern Unk800F57D0* D_800F57D0;
+extern EffectModel* D_800F57D0;
 extern u8 D_800F57D4;
 extern u16 D_800F7DE2[]; // All Lucky 7s trigger count
 extern s8 D_800F7DE4;
@@ -387,7 +400,14 @@ extern s16 g_BattleCameraCursor;
 extern s32 g_dbIndex;
 extern s16 D_800F836C;
 extern s16 D_800F8370;
-extern u8 D_800F8374;
+enum BattleEffectModelState {
+    EFFECT_MODEL_STARTING = 0,
+    EFFECT_MODEL_RUNNING = 1,
+    EFFECT_MODEL_ENDING = 0xFF,
+};
+extern u8 g_BattleEffectModelState;
+extern u8 g_BattleModelFadeFrames;
+extern s32 D_800F7E10[16][3];
 extern u8 D_800F837C;
 extern u8 D_800F8380;
 extern u8* D_800F8384[3];
@@ -436,6 +456,7 @@ extern s16 D_800FA9C6;
 extern s16 D_800FA9C8;
 extern u8 D_801031F4[12];
 extern u8 D_80151688[12];
+extern u8 g_BattleSavedSpecialFlags[10];
 extern s32 D_801516A4[10];
 extern s32 D_801516CC[10];
 extern s32 D_8015174C[10];
@@ -471,6 +492,7 @@ typedef struct {
 
 extern BattleQueueTargetEntry g_BattleQueueTargets[0x80];
 extern u8 D_800FAFDC;
+extern s16 g_BattleEffectModelStartRotY;
 extern s16 D_800FAFD4;
 extern s32 D_800FAFEC;
 extern s32 D_800FAFF0;
@@ -482,6 +504,7 @@ extern u8 D_801031F0;
 extern u8 D_80103200[];
 extern u8 D_80130200[];
 extern Unk80151200 D_80151200[3];
+extern Unk80151360 D_80151360;
 extern u16 D_80151694;
 extern s16 g_BattleEffectCursor;
 extern u16 D_801516A0;
@@ -514,6 +537,7 @@ extern s32 D_80158D08;
 extern u_long D_80158D0C[];
 extern u8 D_801518DC;
 extern s32 D_800F9780[];
+extern s16 D_80153BCE; // g_BattleModels[EFFECT_MODEL_SLOT].clutOffset under its own symbol
 extern u8 D_80153BDD;
 extern u32 D_80151840;
 extern u8 D_801590CC;
@@ -526,7 +550,7 @@ extern void (*g_BattleEffectCallbacks[100])(void);
 extern s16 g_BattleEffectCount;
 extern s16 D_80162084;
 extern s8 D_80162094;
-extern u8 D_80162098;
+extern u8 g_BattleEffectModelNotSummon;
 extern u8 D_801620A0;
 extern u8 D_801620A4;
 extern Unk801620AC g_BattleMovementSlots[10];
@@ -538,14 +562,6 @@ extern u8 D_801635FC;
 extern u8 D_80163600;
 extern u8 D_80163604;
 extern s16 D_80163608;
-extern u16 D_80163758[]; // part of a struct
-extern u16 D_8016375C;
-extern u16 D_8016375E;
-extern u16 D_80163762; // part of a struct
-// Cait Sith's 3 landed Slots reel symbols (see BattleMenuUpdateSelectorIcons, and
-// BattleResolveCaitSithSlotsResult in battle.c)
-extern u8 D_80163774[4];
-extern u8 D_80163778[];
 extern u8 D_80163784[3];
 extern s8 D_80163787; // suspicious, very likely part of a struct
 extern u8 D_8016378C[];
@@ -561,6 +577,7 @@ extern void (*D_80163B84[60])(void);
 extern DR_MODE* D_80163C74; // TODO might be a generic u_long*, not DR_MODE*
 extern s16 D_80163C78;
 extern u8 D_80163C7C;
+extern ShortVectorXYZ g_BattleEffectModelStartPos;
 extern ShortVectorXYZ D_80163C80[];
 typedef struct {
     /* 0x00 */ u8 D_80163CC0;
@@ -599,6 +616,8 @@ void BattleLoadEnemyTexture(s32);
 void BattleInitModelsAnimAndColor(s32, s32);
 void BattleCdromReadChain(void);
 static s32 func_800B1218(s32 arg0, s32 arg1, s32 arg2);
+// definition takes 3 args (a2 -> D_800F4ACC), but existing callers only pass 2
+void BattleInitScriptContext(/*s32, s32, s32*/);
 s16 func_800B888C(s32);
 void func_800B8438(void);
 void func_800B8A34(s16, s32);

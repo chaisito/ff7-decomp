@@ -302,13 +302,13 @@ void BattleRunFrame(void) {
             break;
         }
         if (a > NUM_PARTY && a < NUM_BATTLE_ACTOR) {
-            D_801636B8[a].idleActionId = g_BattleState.combatant[a].idleActionId;
+            g_BattleData.actors[a].idleActionId = g_BattleState.combatant[a].idleActionId;
         }
     }
     BattleQueue1Execute();
     BattleActionQueueReset();
     for (i = START_ENEMY; i < NUM_BATTLE_ACTOR; i++) {
-        D_801636B8[i].idleActionId = g_BattleState.combatant[i].idleActionId;
+        g_BattleData.actors[i].idleActionId = g_BattleState.combatant[i].idleActionId;
     }
 }
 
@@ -398,9 +398,9 @@ static void BattleCopyBattleActionToBattleQueue(BattleActionEntry* action) {
             g_BattleSceneContext.enemySlotMap[priorityTier] += 1;
             g_BattleSceneContext.pendingActionPriority = priorityTier;
             if (action->priority >= 2) {
-                g_BattleState.combatant[action->unitID].stateFlags &= ~0x20;
+                g_BattleState.combatant[action->unitID].stateFlags &= ~COMBATANT_DEFENDING;
                 if ((action->actionType & 0x3F) == 0x13) {
-                    g_BattleState.combatant[action->unitID].stateFlags |= 0x20;
+                    g_BattleState.combatant[action->unitID].stateFlags |= COMBATANT_DEFENDING;
                 }
             }
             return;
@@ -584,9 +584,9 @@ void BattleActionType14(void) {
 
 static u8 func_800A4B3C(s32 index, s32 arg1) {
     if (arg1 != -1) {
-        g_BattleModels[index].battleModelRootBone = arg1;
+        g_BattleModels[index].boneIndices[0] = arg1;
     }
-    return g_BattleModels[index].battleModelRootBone;
+    return g_BattleModels[index].boneIndices[0];
 }
 
 static void func_800A4B9C(void) {}
@@ -664,11 +664,8 @@ void func_800A4E40(void) {
 }
 
 void BattleEnableLimitToPlayerWithSpeed(s32 index) {
-    u16* p;
-
     if (g_BattleWork.party[index].limitLevel != 0xFF) {
-        p = &D_80163762; // Suggests this is part of a larger undiscovered struct (BattleSceneData?)
-        *p |= (1 << index);
+        g_BattleData.limitReadyMask |= (1 << index);
         g_BattleWork.turn[index].limitSpeedFlag |= 1;
         g_BattleWork.turn[index].hasLimitBreak |= 1;
     }
@@ -853,7 +850,6 @@ static s32 GetEnemyAiScriptOffs(u16* arg0, s32 arg1, s32 arg2) {
 extern u16 D_80082884[];
 
 void BattleOpcodeCycle(s32, s32, s32);
-void func_800B2A2C(s32, s32);
 
 void BattleRunUnitScript(s32 actorId, s32 scriptType, s32 arg2) {
     s32 scriptOffset = 0;
@@ -872,10 +868,10 @@ void BattleRunUnitScript(s32 actorId, s32 scriptType, s32 arg2) {
 
     if (actorId >= START_ENEMY) {
         s32 enemySlot = actorId - START_ENEMY;
-        scriptOffset = GetEnemyAiScriptOffs(
-            &g_BattleSceneContext.activeScriptMask - 0x80C, g_ActiveEncounter.formation[enemySlot].enemyID, scriptType);
+        scriptOffset = GetEnemyAiScriptOffs(&g_BattleSceneContext.activeScriptMask - 0x80C,
+                                            g_BattleData.activeEncounter.formation[enemySlot].enemyID, scriptType);
     } else if (actorId < NUM_PARTY) {
-        presetIdx = D_801636B8[actorId].charId;
+        presetIdx = g_BattleData.actors[actorId].charId;
         if (presetIdx != -1) {
             remapped = D_800E7A58[presetIdx];
             if (remapped != 0xFF) {
@@ -891,7 +887,7 @@ void BattleRunUnitScript(s32 actorId, s32 scriptType, s32 arg2) {
             snapshot[i].idleActionId = g_BattleState.combatant[i].idleActionId;
             snapshot[i].hurtActionId = g_BattleState.combatant[i].hurtActionId;
         }
-        func_800B2A2C(actorId, arg2);
+        BattleInitScriptContext(actorId, arg2);
         BattleOpcodeCycle(actorId, scriptOffset, presetIdx);
         for (i = 0; i < NUM_BATTLE_ACTOR; i++) {
             if (snapshot[i].rowFlags != g_BattleState.combatant[i].rowFlags) {
@@ -908,7 +904,7 @@ void BattleExecFormationAIScripts(void) {
     s32 scriptOffset;
     s32 i;
 
-    func_800B2A2C(-1, 0);
+    BattleInitScriptContext(-1, 0);
     for (i = 0; i < 8; i++) {
         if ((g_BattleSceneContext.activeScriptMask >> i) & 1) {
             g_BattleSceneContext.activeScriptMask &= ~(1 << i);
@@ -952,13 +948,10 @@ void BattleResetManipulatorTimer(s32 arg0) {
 void func_800A6590(s32 arg0) { func_800A4D88(arg0); }
 
 void BattleEnableLimitToPlayerResettingBar(s32 charIdx, s32 arg1) {
-    u16* p;
-
     if (charIdx < NUM_PARTY) {
         BattleEnableLimitToPlayerWithoutSpeed(charIdx);
         g_ActiveCharacters[charIdx].unk1A = 0;
-        p = &D_80163762;
-        *p &= ~(1 << charIdx);
+        g_BattleData.limitReadyMask &= ~(1 << charIdx);
     }
 }
 
@@ -1067,7 +1060,7 @@ void func_800A6BFC(void) {}
 void BattleSetLimitBreakStringToDisplay(s32 arg0) {
     s16 sp10;
 
-    sp10 = (s16)D_801636B8[arg0].charId;
+    sp10 = (s16)g_BattleData.actors[arg0].charId;
     g_BattleSceneContext.lucky7777StringID = BattleExpandScriptToBuffer(SysGetKernBattleTextPtr(0x26), &sp10) + 0x100;
     g_BattleSceneContext.lucky7777ActionParam = 0xF;
 }
@@ -1227,11 +1220,11 @@ void BattleActionType04(void) {
     g_CurrentAction->unk20 = -1;
     if (func_800B12DC() != 0) {
         val = 4;
-        if (g_BattleState.combatant[g_CurrentAction->actorId].stateFlags & 0x40) {
+        if (g_BattleState.combatant[g_CurrentAction->actorId].stateFlags & COMBATANT_BACK_ROW) {
             val = 3;
         }
         g_CurrentAction->unk20 = val;
-        g_BattleState.combatant[g_CurrentAction->actorId].stateFlags ^= 0x40;
+        g_BattleState.combatant[g_CurrentAction->actorId].stateFlags ^= COMBATANT_BACK_ROW;
     }
 }
 
@@ -1358,7 +1351,7 @@ void func_800A85B4(void) {
     g_CurrentAction->elements = 0x10;
     g_CurrentAction->power = 1;
     g_CurrentAction->targetFlags = 0;
-    if (!((D_80163758[1] >> g_CurrentAction->actorId) & 1)) {
+    if (!((g_BattleData.unitPresentMask >> g_CurrentAction->actorId) & 1)) {
         g_CurrentAction->unk20 = -1;
     }
 }
@@ -1470,8 +1463,9 @@ static void BattleResolveCaitSithSlotsResult(void) {
 
     comboIndex = 0;
     while (comboIndex < 7) {
-        if (D_80163774[0] == D_800E7BA4[comboIndex][0] && D_80163774[1] == D_800E7BA4[comboIndex][1] &&
-            D_80163774[2] == D_800E7BA4[comboIndex][2]) {
+        if (g_BattleData.caitSithRolls[0] == D_800E7BA4[comboIndex][0] &&
+            g_BattleData.caitSithRolls[1] == D_800E7BA4[comboIndex][1] &&
+            g_BattleData.caitSithRolls[2] == D_800E7BA4[comboIndex][2]) {
             break;
         }
         comboIndex++;
@@ -1609,7 +1603,7 @@ static s32 BattleGetRndOpponentBit(s32 arg0) {
     if (arg0 < START_ENEMY) {
         var_v0 = 0x3F0;
     }
-    return BattleOpcodeGetRndBit(*D_80163758 & var_v0) & 0xFFFF;
+    return BattleOpcodeGetRndBit(g_BattleData.unk14C & var_v0) & 0xFFFF;
 }
 
 INCLUDE_ASM("asm/us/battle/nonmatchings/battle", func_800AA738);
@@ -1653,7 +1647,7 @@ static void BattleLearnEnemySkill(void) {
     s32* flags;
     s32 mask;
 
-    if (!(D_8016376A & 0x40)) {
+    if (!(g_BattleData.flags & 0x40)) {
         flags = (s32*)((u8*)g_CurrentAction->unk204 + 0x24);
         mask = *flags;
 
@@ -1964,8 +1958,8 @@ static void BattleMainDmgCalculation(s32 arg0, s32 arg1) {
         act->flags = (act->flags | 4) & ~8;
         g_CurrentAction->unk7C |= 1 << arg1;
         if (g_CurrentAction->cmdIndex == 0x1A) {
-            if (D_801636B8[arg1].D_801636BC < 0x11) {
-                D_801636B8[arg1].D_801636BC = 8;
+            if (g_BattleData.actors[arg1].D_801636BC < 0x11) {
+                g_BattleData.actors[arg1].D_801636BC = 8;
             }
             BattleCreateImpactData(act, -2, 0, g_CurrentAction->unk248, g_CurrentAction->unk68);
         }
@@ -2256,10 +2250,10 @@ void BattleSetTmpDmgAsPhysical(void) {
         damage *= 3;
         damage >>= 1;
     }
-    isBackRow = g_BattleState.combatant[g_CurrentAction->targetId].stateFlags & 0x40;
+    isBackRow = g_BattleState.combatant[g_CurrentAction->targetId].stateFlags & COMBATANT_BACK_ROW;
     halve = isBackRow != 0;
-    if ((g_CurrentAction->targetFlags & 0x20) || (g_CurrentAction->cmdIndex == 0x20)) {
-        if (g_BattleState.combatant[g_CurrentAction->actorId].stateFlags & 0x40) {
+    if ((g_CurrentAction->targetFlags & TARGET_SHORT_RANGE) || (g_CurrentAction->cmdIndex == CMD_ENEMY_ATTACK)) {
+        if (g_BattleState.combatant[g_CurrentAction->actorId].stateFlags & COMBATANT_BACK_ROW) {
             halve = 1;
         }
     } else {
@@ -2269,7 +2263,7 @@ void BattleSetTmpDmgAsPhysical(void) {
         damage = damage / 2;
     }
     target = g_CurrentAction->targetId;
-    if (g_BattleState.combatant[target].stateFlags & 0x20) {
+    if (g_BattleState.combatant[target].stateFlags & COMBATANT_DEFENDING) {
         damage = damage / 2;
     }
     if (g_CurrentAction->unk234 & 1) {
@@ -2389,7 +2383,7 @@ void BattleLowerFunc18(void) {
     }
 
     for (i = 0; i < 4; i++) {
-        D_80163774[i] = 0xFF;
+        g_BattleData.caitSithRolls[i] = 0xFF;
     }
 
     diceSum = 0;
@@ -2398,9 +2392,9 @@ void BattleLowerFunc18(void) {
         dieValues[i] = dieValue;
         diceSum += dieValue + 1;
         if (i & 1) {
-            D_80163774[i / 2] = dieValue << 4 | D_80163774[i / 2] & 0xF;
+            g_BattleData.caitSithRolls[i / 2] = dieValue << 4 | g_BattleData.caitSithRolls[i / 2] & 0xF;
         } else {
-            D_80163774[i / 2] = dieValue | 0xF0;
+            g_BattleData.caitSithRolls[i / 2] = dieValue | 0xF0;
         }
         SysIncSeedForRandom();
     }
@@ -2795,13 +2789,11 @@ void func_800B0C14(void) {
     }
     prevStateMask = stateMask;
 
-    // Note that this 3 likely refers to the number of possible groups
-    // in battle and not NUM_PARTY (see: BattleInitFormation)
-    for (i = 0; i < 3; i++) {
-        if (g_BattleMultiInfo.characterMask[i] & actorBitMask) {
+    for (i = 0; i < NUM_ZONES; i++) {
+        if (g_BattleData.unitZoneMask[i] & actorBitMask) {
             actorGroup = i;
         }
-        if (g_BattleMultiInfo.characterMask[i] & targetBitMask) {
+        if (g_BattleData.unitZoneMask[i] & targetBitMask) {
             targetGroup = i;
         }
     }
@@ -2861,14 +2853,14 @@ static s32 BattleApplyConditionalReduction(s32 arg0) {
     return arg0;
 }
 
-static s32 func_800B0EB4(s32 arg0) {
+static s32 BattleUnitIsOnPartyTeam(s32 arg0) {
     s32 status = g_BattleState.combatant[arg0].status;
     s32 count = arg0 < START_ENEMY;
 
-    if (status & 0x40) {
+    if (status & STATUS_CONFU) {
         count++;
     }
-    if (status & 0x400000) {
+    if (status & STATUS_MANIPULATE) {
         count++;
     }
 
@@ -3333,7 +3325,54 @@ static s32 BattleScriptCollapseVarBank(s32 arg0) {
 
 INCLUDE_ASM("asm/us/battle/nonmatchings/battle", BattleOpcodeCycle);
 
-INCLUDE_ASM("asm/us/battle/nonmatchings/battle", func_800B2A2C);
+void BattleInitScriptContext(s32 arg0, s32 arg1, s32 arg2) {
+    s32 opponentAliveMask;
+    s32 opponentDeadMask;
+    s32 allyAliveMask;
+    s32 allyDeadMask;
+    s32 activeOpponents;
+    s32 activeAllies;
+    s32 swapTmp;
+
+    D_800F4AC8 = arg1;
+    D_800F4ACC = arg2;
+
+    if (arg0 < 0) {
+        return;
+    }
+
+    // Masks default to the enemy's perspective (opponents = party, allies = enemies)
+    activeOpponents = g_BattleState.playerUnitMask & g_BattleData.unk152;
+    activeAllies = g_BattleState.enemyUnitMask & g_BattleData.unk152;
+
+    opponentAliveMask = activeOpponents & ~g_BattleData.downedActors;
+    opponentDeadMask = activeOpponents & g_BattleData.downedActors;
+    allyAliveMask = activeAllies & ~g_BattleData.downedActors;
+    allyDeadMask = activeAllies & g_BattleData.downedActors;
+
+    // Swap to the party's perspective when the actor is on the party team
+    if (BattleUnitIsOnPartyTeam(arg0)) {
+        swapTmp = opponentAliveMask;
+        opponentAliveMask = allyAliveMask;
+        allyAliveMask = swapTmp;
+
+        swapTmp = opponentDeadMask;
+        opponentDeadMask = allyDeadMask;
+        allyDeadMask = swapTmp;
+    }
+
+    opponentAliveMask &= ~g_BattleSceneContext.petrifiedMask;
+
+    g_BattleState.scriptSelfMask = 1 << arg0;
+    g_BattleState.scriptAllyAliveMask = allyAliveMask;
+    g_BattleState.scriptAllyDeadMask = allyDeadMask;
+    g_BattleState.scriptOpponentDeadMask = opponentDeadMask;
+    g_BattleState.scriptOpponentAliveMask = opponentAliveMask;
+    g_BattleState.scriptOpponentNonPetrifiedMask = opponentAliveMask;
+
+    g_BattleState.allUnitsMask = g_BattleData.unitPresentMask & g_BattleState.presentMask;
+    g_BattleState.partyGil = Savemap.gil;
+}
 
 static void BattleQueueOpcodeAction(s16 unitId, s16 actionType, s16 attackIndex) {
     BattleActionEntry action;
